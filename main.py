@@ -148,5 +148,6 @@ def main():
     calculator = AreaCalculator()
     calculator.run('your_image.png')
 
+
 if __name__ == "__main__":
     main()
