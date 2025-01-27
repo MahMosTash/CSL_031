@@ -1,140 +1,98 @@
 import cv2
 import numpy as np
 
-def detect_red_line(image):
-    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+class AreaCalculator:
+    def __init__(self):
+        self.current_metric_index = 0
+        self.metric_lines = []
+        self.shape_contours = []
+        self.known_length = 10  # Default known length
+        self.image = None
+        self.output = None
 
-    # Red color ranges
-    lower_red1 = np.array([0, 100, 100])
-    upper_red1 = np.array([10, 255, 255])
-    lower_red2 = np.array([160, 100, 100])
-    upper_red2 = np.array([180, 255, 255])
+    def detect_red_line(self, image):
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
-    # Create masks
-    mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
-    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
-    red_mask = mask1 + mask2
+        # Red color ranges
+        lower_red1 = np.array([0, 100, 100])
+        upper_red1 = np.array([10, 255, 255])
+        lower_red2 = np.array([160, 100, 100])
+        upper_red2 = np.array([180, 255, 255])
 
-    # Noise removal
-    kernel = np.ones((5,5), np.uint8)
-    red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_OPEN, kernel)
-    red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_CLOSE, kernel)
+        # Create masks
+        mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+        mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+        red_mask = mask1 + mask2
 
-    return red_mask
+        # Noise removal
+        kernel = np.ones((5,5), np.uint8)
+        red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_OPEN, kernel)
+        red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_CLOSE, kernel)
 
-def detect_shape(image):
-    # Convert to grayscale
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # Find contours of red lines
+        contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Apply blur
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        # Filter and store red line contours
+        self.metric_lines = [cnt for cnt in contours if cv2.contourArea(cnt) > 100]
 
-    # Threshold
-    _, thresh = cv2.threshold(blurred, 127, 255, cv2.THRESH_BINARY)
+        return red_mask
 
-    # Find contours
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    def detect_shape(self, image):
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                       cv2.THRESH_BINARY_INV, 11, 2)
 
-    # Filter contours
-    filtered_contours = []
-    for contour in contours:
-        area = cv2.contourArea(contour)
-        if area > 100:  # Minimum area threshold
-            filtered_contours.append(contour)
+        kernel = np.ones((3,3), np.uint8)
+        thresh = cv2.dilate(thresh, kernel, iterations=1)
+        thresh = cv2.erode(thresh, kernel, iterations=1)
 
-    return filtered_contours
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-def get_red_line_length(red_mask):
-    # Find contours of the red line
-    contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        self.shape_contours = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area > 1000:
+                peri = cv2.arcLength(contour, True)
+                approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
+                if len(approx) >= 3:
+                    self.shape_contours.append(contour)
 
-    if not contours:
-        return None
+    def get_line_length(self, contour):
+        rect = cv2.minAreaRect(contour)
+        width = rect[1][0]
+        height = rect[1][1]
+        return max(width, height)
 
-    # Get the longest contour (assumed to be the metric line)
-    longest_contour = max(contours, key=cv2.contourArea)
+    def calculate_areas(self):
+        if not self.metric_lines:
+            return
 
-    # Get the minimum bounding rectangle
-    rect = cv2.minAreaRect(longest_contour)
-    box = cv2.boxPoints(rect)
-    box = np.int0(box)
+        # Get current metric line
+        current_metric = self.metric_lines[self.current_metric_index]
+        pixel_length = self.get_line_length(current_metric)
 
-    # Calculate the length of the line in pixels
-    width = rect[1][0]
-    height = rect[1][1]
-    pixel_length = max(width, height)
+        if pixel_length == 0:
+            return
 
-    return pixel_length
+        # Calculate pixel to metric ratio
+        pixel_to_metric_ratio = self.known_length / pixel_length
 
-def calculate_pixel_to_metric_ratio(pixel_length, known_length):
-    """
-    Calculate the ratio of pixels to metric units
-    known_length should be in the desired unit (e.g., cm, mm, etc.)
-    """
-    if pixel_length is None or pixel_length == 0:
-        return None
-    return known_length / pixel_length
+        # Create clean output image
+        self.output = self.image.copy()
 
-def calculate_area(contour, pixel_to_metric_ratio):
-    """
-    Calculate the area in real-world units
-    """
-    if pixel_to_metric_ratio is None:
-        return None
+        # Draw current metric line
+        cv2.drawContours(self.output, [current_metric], -1, (0, 0, 255), 2)
 
-    # Get area in pixels
-    pixel_area = cv2.contourArea(contour)
+        # Calculate and display areas
+        for contour in self.shape_contours:
+            pixel_area = cv2.contourArea(contour)
+            real_area = pixel_area * (pixel_to_metric_ratio ** 2)
 
-    # Convert to real-world units
-    real_area = pixel_area * (pixel_to_metric_ratio ** 2)
-
-    return real_area
-
-def main():
-    # Read image
-    image = cv2.imread('your_image.png')
-    if image is None:
-        print("Error: Could not load image")
-        return
-
-    # Make a copy for drawing
-    output = image.copy()
-
-    # Known length of the red line in your desired units (e.g., cm)
-    KNOWN_LENGTH = 10  # Change this to your actual reference length
-
-    # Detect red line
-    red_mask = detect_red_line(image)
-    pixel_length = get_red_line_length(red_mask)
-
-    if pixel_length is None:
-        print("Error: Could not detect reference line")
-        return
-
-    # Calculate pixel to metric ratio
-    pixel_to_metric_ratio = calculate_pixel_to_metric_ratio(pixel_length, KNOWN_LENGTH)
-
-    if pixel_to_metric_ratio is None:
-        print("Error: Could not calculate pixel to metric ratio")
-        return
-
-    # Detect shapes
-    shape_contours = detect_shape(image)
-
-    if not shape_contours:
-        print("Error: No shapes detected")
-        return
-
-    # Calculate and display area for each detected shape
-    for i, contour in enumerate(shape_contours):
-        # Calculate area
-        area = calculate_area(contour, pixel_to_metric_ratio)
-
-        if area is not None:
             # Draw contour
-            cv2.drawContours(output, [contour], -1, (0, 255, 0), 2)
+            cv2.drawContours(self.output, [contour], -1, (0, 255, 0), 2)
 
-            # Calculate centroid for text placement
+            # Calculate centroid
             M = cv2.moments(contour)
             if M["m00"] != 0:
                 cX = int(M["m10"] / M["m00"])
@@ -142,25 +100,53 @@ def main():
             else:
                 cX, cY = 0, 0
 
-            # Draw area value on image
-            text = f"Area: {area:.2f} sq units"
-            cv2.putText(output, text, (cX - 50, cY),
+            # Draw area value
+            text = f"Area: {real_area:.2f} sq units"
+            cv2.putText(self.output, text, (cX - 50, cY),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
-    # Draw reference line information
-    cv2.putText(output, f"Reference Length: {KNOWN_LENGTH} units",
-                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        # Draw metric information
+        cv2.putText(self.output, f"Current Metric: {self.current_metric_index + 1}/{len(self.metric_lines)}",
+                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        cv2.putText(self.output, f"Reference Length: {self.known_length} units",
+                    (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
-    # Display results
-    cv2.imshow('Original Image', image)
-    cv2.imshow('Red Mask', red_mask)
-    cv2.imshow('Results', output)
+    def run(self, image_path):
+        self.image = cv2.imread(image_path)
+        if self.image is None:
+            print("Error: Could not load image")
+            return
 
-    # Save the result
-    cv2.imwrite('result.jpg', output)
+        # Initial detection
+        red_mask = self.detect_red_line(self.image)
+        self.detect_shape(self.image)
 
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+        if not self.metric_lines:
+            print("Error: No red lines detected")
+            return
+
+        while True:
+            # Calculate and display areas
+            self.calculate_areas()
+
+            # Display results
+            cv2.imshow('Results', self.output)
+            cv2.imshow('Red Mask', red_mask)
+
+            # Handle keyboard input
+            key = cv2.waitKey(1) & 0xFF
+
+            if key == ord('m') or key == ord('M'):
+                # Switch to next metric line
+                self.current_metric_index = (self.current_metric_index + 1) % len(self.metric_lines)
+            elif key == ord('q') or key == 27:  # 'q' or ESC
+                break
+
+        cv2.destroyAllWindows()
+
+def main():
+    calculator = AreaCalculator()
+    calculator.run('your_image.png')
 
 if __name__ == "__main__":
     main()
