@@ -133,6 +133,13 @@ str_to_128bit:
     xgr %r7, %r7 
     lghi %r8, 10  
     lgr %r9, %r2   
+
+    llgc %r4, 0(%r9)
+    chi %r4, 45
+    jne convert_loop
+    aghi %r4, -44
+    stgrl %r4, sign
+    aghi %r9, 1
     
 convert_loop:
     llgc %r4, 0(%r9)
@@ -343,6 +350,10 @@ check_instruction:
     larl %r2, buffer     # Get string address
     llgc %r4, 0(%r2)
     stgrl %r4, INST
+
+    # lgr %r3, %r4
+    # print_char
+
     leave 8
     ret
 
@@ -387,8 +398,7 @@ main:
     stgrl %r3, NUM2LO
     stgrl %r4, NUM2SI
 
-    larl %r2, INST      # read instruction
-    llgc    %r3, 0(%r2)
+    lgrl %r3, INST      # read instruction
     chi %r3, '+'
     jne not_equal1
     Call DOSUM
@@ -407,13 +417,26 @@ main:
     not_equal3:
     chi %r3, '/'
     jne not_equal4
-    Call DODIV
+    # Call DODIV
     not_equal4:
     
     # Print result message
     
     # Print result
+    lgrl %r2, RESHI
+    lgrl %r3, RESLO
+    lgrl %r4, RESSI
+    stgrl %r2, high_store
+    stgrl %r3, low_store
+    stgrl %r4, sign
+
     call numbers_to_string
+    lgrl %r3, sign
+    chi %r3, 1
+    jne print_unsigned
+    aghi %r3, 44
+    print_char
+print_unsigned:
     print_string output
     
     # Print newline
@@ -449,7 +472,6 @@ check_exit:
 not_exit:
     leave 8
     ret
-
 
 #-------------------------------------------sum and sub
 DOSUM:
@@ -599,3 +621,4 @@ MUL:
     stgrl %r8,RESHI
     leave 0
     ret
+    
