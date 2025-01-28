@@ -387,7 +387,28 @@ main:
     stgrl %r3, NUM2LO
     stgrl %r4, NUM2SI
 
-    # ostad
+    larl %r2, INST      # read instruction
+    llgc    %r3, 0(%r2)
+    chi %r3, '+'
+    jne not_equal1
+    Call DOSUM
+    not_equal1:
+    chi %r3, '-'
+    jne not_equal2
+    lghi %r2,1         # -1 * NUM2SI
+    lgrl %r4,NUM2SI
+    xgr %r4,%r2
+    stgrl %r4,NUM2SI
+    Call DOSUM
+    not_equal2:
+    chi %r3, '*'
+    jne not_equal3
+    Call DOMUL
+    not_equal3:
+    chi %r3, '/'
+    jne not_equal4
+    Call DODIV
+    not_equal4:
     
     # Print result message
     
@@ -430,4 +451,151 @@ not_exit:
     ret
 
 
+#-------------------------------------------sum and sub
+DOSUM:
+    enter 0
+    j check_sum_AB_hi
+
+check_sum_AB_hi:
+    lgrl %r4,NUM1HI
+    lgrl %r5,NUM2HI
+    cgr %r4,%r5
+    je check_sum_AB_lo
+    jh check_sign_sum_A_g_B
+    jl check_sign_sum_A_l_B
+
+check_sum_AB_lo:
+    lgrl %r4,NUM1LO
+    lgrl %r5,NUM2LO
+    cgr %r4,%r5
+    je check_sign_sum_A_e_B
+    jh check_sign_sum_A_g_B
+    jl check_sign_sum_A_l_B
+
+check_sign_sum_A_e_B:
+    lgrl %r4,NUM1SI
+    lgrl %r5,NUM2SI
+    cgr %r4,%r5
+    jne ZERO
+    stgrl %r4,RESSI
+    j SUM
+
+check_sign_sum_A_g_B:
+    lgrl %r4,NUM1SI
+    lgrl %r5,NUM2SI
+    cgr %r4,%r5
+
+    stgrl %r4,RESSI
+    je SUM
+
+    stgrl %r4,RESSI
+    jl SUB
+
+    stgrl %r5,RESSI
+    jh SUB
+
+
+check_sign_sum_A_l_B:
+    lgrl %r4,NUM1SI
+    lgrl %r5,NUM2SI
+    cgr %r4,%r5
+
+    stgrl %r4,RESSI
+    je SUM
+
+    #convert A and B
+    lgrl %r4,NUM1LO
+    lgrl %r5,NUM2LO
+    lgrl %r6,NUM1HI
+    lgrl %r7,NUM2HI
+    stgrl %r4,NUM2LO
+    stgrl %r5,NUM1LO
+    stgrl %r6,NUM2HI
+    stgrl %r7,NUM1HI
+
+    stgrl %r4,RESSI
+    jl SUB
+
+    stgrl %r5,RESSI
+    jh SUB
+
+
+SUM:
+    lgrl %r4,NUM1LO
+    lgrl %r5,NUM2LO
+    lgrl %r6,NUM1HI
+    lgrl %r7,NUM2HI
+    agr %r4,%r5
+    brc 4 ,CARRY
+    agr %r6,%r7
+    j PUTRESULT
+CARRY:
+    agr %r6,%r7
+    agfi %r6, 1
+    j PUTRESULT
+
+SUB:
+    lgrl %r4,NUM1LO
+    lgrl %r5,NUM2LO
+    lgrl %r6,NUM1HI
+    lgrl %r7,NUM2HI
+    sgr %r4,%r5
+    brc 4 ,BORROW
+    sgr %r6,%r7     
+    j PUTRESULT
+BORROW:
+    sgr %r6,%r7
+    agfi %r6, -1
+    j PUTRESULT
+
+ZERO:
+    lghi %r4,0
+    stgrl %r4,RESSI
+    stgrl %r4,RESLO
+    stgrl %r4,RESHI
+    leave 0
+    ret
+
+PUTRESULT:
+    stgrl %r4,RESLO
+    stgrl %r6,RESHI
+    leave 0
+    ret
     
+
+    
+#------------------------------------------------- mul
+DOMUL:
+    enter 0
+    lgrl %r4,NUM1SI
+    lgrl %r5,NUM2SI
+    cgr %r4,%r5
+    je POSMUL
+    lghi %r4,1
+    stgrl %r4,RESSI
+    j MUL
+
+POSMUL:
+    lghi %r4,0
+    stgrl %r4,RESSI
+    j MUL
+
+MUL:
+    lgrl %r4,NUM1LO
+    lgrl %r7,NUM2LO
+    mlgr %r6,%r4  # low 64 bit in r6 and hi 64 bit in r7
+    stgrl %r7,RESLO
+    lgr %r8,%r6 
+
+    lgrl %r4,NUM1HI
+    lgrl %r7,NUM2LO
+    mlgr %r6,%r4
+    agr %r8,%r7
+
+    lgrl %r4,NUM1LO
+    lgrl %r7,NUM2HI
+    mlgr %r6,%r4
+    agr %r8,%r7
+    stgrl %r8,RESHI
+    leave 0
+    ret
