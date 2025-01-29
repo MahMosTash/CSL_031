@@ -1,11 +1,11 @@
 .macro enter size
-    stmg    %r6, %r15, 48(%r15)
+    stmg    %r4, %r15, 32(%r15)
     lay     %r15, -(160+\size)(%r15)
 .endm
 
 .macro leave size
     lay     %r15, (160+\size)(%r15)
-    lmg     %r6, %r15, 48(%r15)
+    lmg     %r4, %r15, 32(%r15)
 .endm
 
 .macro ret
@@ -88,6 +88,14 @@
     invalid_msg: .asciz "invalid input!\nCalculate only by your numbers"
     .align 8
     newline: .asciz "\n"
+    .align 8
+    space_char: .asciz " - "
+    .align 8
+    init: .asciz "--- 128-bit Calculator ---\n"
+    end_of: .asciz "--------------------------\n"
+    equal: .asciz "= "
+    .align 8
+    rem_msg: .asciz "remainder = "
 
     .align 8
     buffer: .space 100  
@@ -110,6 +118,7 @@
     REMHI: .quad 0
 
     INST: .quad 0
+    flag: .quad 0
 
     remainder: .quad 0
     ar3: .quad 0
@@ -128,6 +137,7 @@ str_to_128bit:
     enter 16
     
     xgr %r4, %r4
+    stgrl %r4, sign
     xgr %r5, %r5
     xgr %r6, %r6 
     xgr %r7, %r7 
@@ -181,7 +191,7 @@ print_result:
     print_string low_bits_msg
     lgr %r3, %r7
     print_long
-    print_string newline
+    print_string space_char
     print_string high_bits_msg 
     lgr %r3, %r6
     print_long
@@ -356,8 +366,9 @@ check_instruction:
 
     leave 8
     ret
-
 main:
+    print_string init
+main2:
     enter 32
 
     # Read and convert number 1
@@ -417,12 +428,33 @@ main:
     not_equal3:
     chi %r3, '/'
     jne not_equal4
-    # Call DODIV
+    Call DODIV
+print_rem:
+    print_string rem_msg
+    lgrl %r2, REMHI
+    lgrl %r3, REMLO
+    lgrl %r4, RESSI
+    stgrl %r2, high_store
+    stgrl %r3, low_store
+    stgrl %r4, sign
+    call numbers_to_string
+    lgrl %r3, sign
+    chi %r3, 1
+    jne print_unsigned_2
+    aghi %r3, 44    
+    print_char
+print_unsigned_2:
+    print_string output
+    
+    # Print newline
+    print_string newline
+
     not_equal4:
     
     # Print result message
     
     # Print result
+    print_string equal
     lgrl %r2, RESHI
     lgrl %r3, RESLO
     lgrl %r4, RESSI
@@ -441,8 +473,9 @@ print_unsigned:
     
     # Print newline
     print_string newline
+    print_string end_of
     leave 32
-    j main
+    j main2
 
 check_exit:
     enter 8
@@ -547,14 +580,28 @@ check_sign_sum_A_l_B:
     cgr %r4,%r5
     jh SUB
 
-
 SUM:
     lgrl %r4,NUM1LO
     lgrl %r5,NUM2LO
     lgrl %r6,NUM1HI
     lgrl %r7,NUM2HI
+    srlg %r10,%r4,63
+    srlg %r11,%r5,63
     agr %r4,%r5
     brc 4 ,CARRY
+
+    srlg %r12,%r4,63
+    lgfi %r13,-1
+    xgr %r12,%r13
+    # nogrk %r12,%r12,%r12
+    xgr %r10,%r11
+    ngr %r10,%r12
+    lgfi %r12,1
+    ngr %r10,%r12
+    cgr %r10,%r12
+    je CARRY
+
+
     agr %r6,%r7
     j PUTRESULT
 CARRY:
@@ -646,12 +693,15 @@ INITDIV:
     lgrl %r5,NUM1HI
     lgrl %r6,NUM2LO
     lgrl %r7,NUM2HI
+    
 
     lghi %r8,0
     stgrl %r8,RESHI
     stgrl %r8,RESLO
     stgrl %r8,REMHI 
     stgrl %r8,REMLO
+    lgrl %r9,REMLO
+    lgrl %r10,REMHI
                     
     lghi %r8,64
     j FOR64BITHI
@@ -661,33 +711,30 @@ FOR64BITHI:
     cgfi %r8,0
     jl INITSECFOR
 
-    lgrl %r9,REMLO
-    lgrl %r10,REMHI
+    
     lghi %r13,63
-    srlg %r11,%r9, 0(%r13)
-    lghi %r12,1
-    sllg %r9, %r9, 0(%r12)
-    sllg %r10, %r10, 0(%r12)
+    srlg %r11,%r9, 63
+    sllg %r9, %r9, 1
+    sllg %r10, %r10, 1
     ogr %r10,%r11
 
     srlg %r11,%r5, 0(%r8)
+    lghi %r12,1
     ngr %r11 , %r12
     ogr %r9,%r11
 
-    stgrl %r10,REMHI 
-    stgrl %r9,REMLO
 
-    stmg %r4,%r15,32(%r15)
-    lay %r15, -160(%r15)
+    cgr %r7,%r10
+    je checklo
+    jh FOR64BITHI
+    jl continue
 
-    brasl	%r14, CHECKREMHI
 
-    cgfi %r4 , 0
+    checklo:
+    cgr %r6,%r9
+    jh FOR64BITHI
+    continue:
 
-    lay %r15, 160(%r15)
-    lmg %r4,%r15,32(%r15)
-
-    je FOR64BITHI
 
     lghi %r12,1
     sgr %r10,%r7
@@ -703,36 +750,9 @@ FOR64BITHI:
     ogr %r12,%r11
     stgrl %r12,RESHI
 
+    
+
     j FOR64BITHI
-
-CHECKREMHI:
-    lgrl %r7,NUM2HI
-    lgrl %r10,REMHI
-    cgr %r7,%r10
-    je CHECKREMLO
-
-    lghi %r4,0
-    jh RETCHECKREM
-
-    lghi %r4,1
-    j RETCHECKREM
-
-
-
-CHECKREMLO:
-    lgrl %r6,NUM2LO
-    lgrl %r9,REMLO
-    cgr %r6,%r9
-
-    lghi %r4,0
-    jh RETCHECKREM
-
-    lghi %r4,1
-    j RETCHECKREM
-
-
-RETCHECKREM:
-    ret
 
 INITSECFOR:
     lghi %r8,64
@@ -743,53 +763,71 @@ FOR64BITLO:
     cgfi %r8,0
     jl DONEDIV
 
-    lgrl %r9,REMLO
-    lgrl %r10,REMHI
+    # lgfi %r3,1
+    # print_long
+
+
     lghi %r13,63
-    srlg %r11,%r9, 0(%r13)
-    lghi %r12,1
-    sllg %r9, %r9, 0(%r12)
-    sllg %r10, %r10, 0(%r12)
+    srlg %r11,%r9, 63
+    sllg %r9, %r9, 1
+    sllg %r10, %r10, 1
     ogr %r10,%r11
 
-    srlg %r11,%r4, 0(%r8)
+    srlg %r11,%r4,0(%r8)
+    lghi %r12,1
     ngr %r11 , %r12
+    # lgr %r3 , %r11
+    # print_long
     ogr %r9,%r11
 
-    stgrl %r10,REMHI 
-    stgrl %r9,REMLO
+    # stgrl %r10,REMHI 
+    # stgrl %r9,REMLO
 
-    stmg %r4,%r15,32(%r15)
-    lay %r15, -160(%r15)
+    # lgr %r3,%r9
+    # print_long
 
-    brasl	%r14, CHECKREMHI
+    cgr %r7,%r10
+    je checklo1
+    jh FOR64BITLO
+    jl continue1
 
-    cgfi %r4 , 0
 
-    lay %r15, 160(%r15)
-    lmg %r4,%r15,32(%r15)
-
-    je FOR64BITLO
+    checklo1:
+    cgr %r6,%r9
+    jh FOR64BITLO
+    continue1:
 
     lghi %r12,1
     sgr %r10,%r7
     sgr %r10,%r12
     sgr %r9,%r6
-    brc 4 ,BORROWHI
+    brc 4 ,BORROWLO
     agr %r10,%r12
-    BORROWHI:
+    BORROWLO:
 
     lghi %r11,1
     sllg %r11, %r11, 0(%r8)
     lgrl %r12,RESLO
     ogr %r12,%r11
     stgrl %r12,RESLO
+    
 
     j FOR64BITLO
-
 
 DONEDIV:
     stgrl %r10,REMHI 
     stgrl %r9,REMLO
     leave 0
     ret
+
+
+
+
+
+
+
+
+
+
+
+
