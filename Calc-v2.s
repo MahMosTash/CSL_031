@@ -508,21 +508,23 @@ check_sign_sum_A_g_B:
     cgr %r4,%r5
 
     stgrl %r4,RESSI
+    cgr %r4,%r5
     je SUM
 
     stgrl %r4,RESSI
+    cgr %r4,%r5
     jl SUB
 
     stgrl %r5,RESSI
+    cgr %r4,%r5
     jh SUB
 
 
 check_sign_sum_A_l_B:
     lgrl %r4,NUM1SI
     lgrl %r5,NUM2SI
-    cgr %r4,%r5
-
     stgrl %r4,RESSI
+    cgr %r4,%r5
     je SUM
 
     #convert A and B
@@ -535,10 +537,14 @@ check_sign_sum_A_l_B:
     stgrl %r6,NUM2HI
     stgrl %r7,NUM1HI
 
-    stgrl %r4,RESSI
+    lgrl %r4,NUM1SI
+    lgrl %r5,NUM2SI
+    stgrl %r5,RESSI
+    cgr %r4,%r5
     jl SUB
 
-    stgrl %r5,RESSI
+    stgrl %r4,RESSI
+    cgr %r4,%r5
     jh SUB
 
 
@@ -582,10 +588,7 @@ PUTRESULT:
     stgrl %r4,RESLO
     stgrl %r6,RESHI
     leave 0
-    ret
-    
-
-    
+    ret    
 #------------------------------------------------- mul
 DOMUL:
     enter 0
@@ -622,3 +625,171 @@ MUL:
     leave 0
     ret
     
+#---------------------------------------------- div
+DODIV:
+    enter 0
+    lgrl %r4,NUM1SI
+    lgrl %r5,NUM2SI
+    cgr %r4,%r5
+    je POSDIV
+    lghi %r4,1
+    stgrl %r4,RESSI
+    j INITDIV
+
+POSDIV:
+    lghi %r4,0
+    stgrl %r4,RESSI
+    j INITDIV
+
+INITDIV:
+    lgrl %r4,NUM1LO
+    lgrl %r5,NUM1HI
+    lgrl %r6,NUM2LO
+    lgrl %r7,NUM2HI
+
+    lghi %r8,0
+    stgrl %r8,RESHI
+    stgrl %r8,RESLO
+    stgrl %r8,REMHI 
+    stgrl %r8,REMLO
+                    
+    lghi %r8,64
+    j FOR64BITHI
+
+FOR64BITHI:
+    agfi %r8,-1
+    cgfi %r8,0
+    jl INITSECFOR
+
+    lgrl %r9,REMLO
+    lgrl %r10,REMHI
+    lghi %r13,63
+    srlg %r11,%r9, 0(%r13)
+    lghi %r12,1
+    sllg %r9, %r9, 0(%r12)
+    sllg %r10, %r10, 0(%r12)
+    ogr %r10,%r11
+
+    srlg %r11,%r5, 0(%r8)
+    ngr %r11 , %r12
+    ogr %r9,%r11
+
+    stgrl %r10,REMHI 
+    stgrl %r9,REMLO
+
+    stmg %r4,%r15,32(%r15)
+    lay %r15, -160(%r15)
+
+    brasl	%r14, CHECKREMHI
+
+    cgfi %r4 , 0
+
+    lay %r15, 160(%r15)
+    lmg %r4,%r15,32(%r15)
+
+    je FOR64BITHI
+
+    lghi %r12,1
+    sgr %r10,%r7
+    sgr %r10,%r12
+    sgr %r9,%r6
+    brc 4 ,BORROWHI
+    agr %r10,%r12
+    BORROWHI:
+
+    lghi %r11,1
+    sllg %r11, %r11, 0(%r8)
+    lgrl %r12,RESHI
+    ogr %r12,%r11
+    stgrl %r12,RESHI
+
+    j FOR64BITHI
+
+CHECKREMHI:
+    lgrl %r7,NUM2HI
+    lgrl %r10,REMHI
+    cgr %r7,%r10
+    je CHECKREMLO
+
+    lghi %r4,0
+    jh RETCHECKREM
+
+    lghi %r4,1
+    j RETCHECKREM
+
+
+
+CHECKREMLO:
+    lgrl %r6,NUM2LO
+    lgrl %r9,REMLO
+    cgr %r6,%r9
+
+    lghi %r4,0
+    jh RETCHECKREM
+
+    lghi %r4,1
+    j RETCHECKREM
+
+
+RETCHECKREM:
+    ret
+
+INITSECFOR:
+    lghi %r8,64
+    j FOR64BITLO
+
+FOR64BITLO:
+    agfi %r8,-1
+    cgfi %r8,0
+    jl DONEDIV
+
+    lgrl %r9,REMLO
+    lgrl %r10,REMHI
+    lghi %r13,63
+    srlg %r11,%r9, 0(%r13)
+    lghi %r12,1
+    sllg %r9, %r9, 0(%r12)
+    sllg %r10, %r10, 0(%r12)
+    ogr %r10,%r11
+
+    srlg %r11,%r4, 0(%r8)
+    ngr %r11 , %r12
+    ogr %r9,%r11
+
+    stgrl %r10,REMHI 
+    stgrl %r9,REMLO
+
+    stmg %r4,%r15,32(%r15)
+    lay %r15, -160(%r15)
+
+    brasl	%r14, CHECKREMHI
+
+    cgfi %r4 , 0
+
+    lay %r15, 160(%r15)
+    lmg %r4,%r15,32(%r15)
+
+    je FOR64BITLO
+
+    lghi %r12,1
+    sgr %r10,%r7
+    sgr %r10,%r12
+    sgr %r9,%r6
+    brc 4 ,BORROWHI
+    agr %r10,%r12
+    BORROWHI:
+
+    lghi %r11,1
+    sllg %r11, %r11, 0(%r8)
+    lgrl %r12,RESLO
+    ogr %r12,%r11
+    stgrl %r12,RESLO
+
+    j FOR64BITLO
+
+
+DONEDIV:
+    stgrl %r10,REMHI 
+    stgrl %r9,REMLO
+    leave 0
+    ret
